@@ -85,9 +85,14 @@ def update_channels_list():
         except Exception:
             pass
 
-        channels_url = f"{PORTAL_URL}?type=itv&action=get_all_channels&genre=*&JsHttpRequest=1-xml&token={token}"
+        # Пробуем запросить каналы без указания genre=* (иногда это вызывает ошибку на сервере)
+        channels_url = f"{PORTAL_URL}?type=itv&action=get_all_channels&JsHttpRequest=1-xml&token={token}"
         res = requests.get(channels_url, headers=headers, timeout=10)
         text = res.text
+        
+        # Запишем сырой ответ в lastError, чтобы увидеть, что именно отвечает портал
+        last_error = f"RAW: {text[:100]}"
+
         if not text.strip().startswith("<") and not text.startswith("Authorization"):
             res_json = res.json()
             js_data = res_json.get("js")
@@ -111,7 +116,6 @@ def update_channels_list():
                 last_error = ""
     except Exception as e:
         last_error = f"Update channels error: {str(e)}"
-
 @app.get("/")
 def root_redirect():
     return RedirectResponse(TELEGRAM_GROUP, status_code=302)
