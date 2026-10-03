@@ -28,7 +28,7 @@ last_error = ""
 def get_valid_session():
     global cached_headers, cached_token, session_time, last_error
     now = time.time() * 1000
-    if cached_headers and cached_token and (now - session_time < 300000): # Сократим кэш до 5 минут
+    if cached_headers and cached_token and (now - session_time < 300000):
         return {"headers": cached_headers, "token": cached_token}
     
     headers = {
@@ -49,17 +49,20 @@ def get_valid_session():
         hs_data = hs_res.json()
         token = hs_data.get("js", {}).get("token") or hs_data.get("token") or ""
         
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-            headers["Cookie"] = f"mac={MAC}; stb_lang=en; timezone=Europe/London; token={token}"
+        if not token:
+            last_error = "Handshake failed: no token received"
+            return {"headers": headers, "token": ""}
+
+        # Обновляем заголовки с токеном
+        headers["Authorization"] = f"Bearer {token}"
+        headers["Cookie"] = f"mac={MAC}; stb_lang=en; timezone=Europe/London; token={token}"
 
         timestamp = int(now / 1000)
         metrics = '{"type":"stb","model":"MAG254","mac":"' + MAC + '","sn":"' + SN + '","uid":"' + UID + '","random":"' + RANDOM + '"}'
 
-        # 2. Обязательные шаги инициализации приставки, без которых портал сбрасывает авторизацию
-        init_url = f"{PORTAL_URL}?type=stb&action=stb_init&JsHttpRequest=1-xml&token={token}"
-        requests.get(init_url, headers=headers, timeout=10)
-
+        # 2. Инициализация профиля
+        requests.get(f"{PORTAL_URL}?type=stb&action=stb_init&JsHttpRequest=1-xml&token={token}", headers=headers, timeout=10)
+        
         profile_url = (
             f"{PORTAL_URL}?type=stb&action=get_profile&JsHttpRequest=1-xml&hd=1&"
             f"ver=ImageDescription: 0.2.18-r23-250; PORTAL version: 5.3.0&"
@@ -74,8 +77,7 @@ def get_valid_session():
     except Exception as e:
         last_error = f"Session error: {str(e)}"
     
-    return {"headers": cached_headers or headers, "token": cached_token}
-    
+    return {"headers": cached_headers or headers, "token": cached_token}    
 def update_channels_list():
     global cached_channels, last_error
     try:
