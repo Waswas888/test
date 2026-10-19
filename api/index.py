@@ -30,25 +30,23 @@ def get_session():
         "Pragma": "no-cache",
     }
     session.headers.update(headers)
+    
+    # Обязательные cookie портала
     session.cookies.set("mac", MAC_BASE, domain="178.63.13.164")
     session.cookies.set("stb_lang", "en", domain="178.63.13.164")
     session.cookies.set("timezone", "Europe/London", domain="178.63.13.164")
 
-    try:
-        session.get("http://178.63.13.164:88/stalker_portal/c/", timeout=5)
-        session.get("http://178.63.13.164:88/stalker_portal/c/xpcom.common.js", timeout=5)
-        session.get("http://178.63.13.164:88/stalker_portal/c/version.js", timeout=5)
-    except Exception:
-        pass
-
     token = ""
     try:
         hs_url = f"{PORTAL_URL}?type=stb&action=handshake&token=&JsHttpRequest=1-xml"
-        r = session.get(hs_url, timeout=10).json()
+        r = session.get(hs_url, timeout=5).json()
         token = r.get("js", {}).get("token", "")
         if token:
             session.cookies.set("token", token, domain="178.63.13.164")
-            session.headers.update({"Authorization": f"Bearer {token}"})
+            session.headers.update({
+                "Authorization": f"Bearer {token}",
+                "X-User-Agent": f"Model: MAG250; Link: WiFi; Token: {token}"
+            })
     except Exception:
         pass
 
@@ -75,61 +73,50 @@ def get_session():
     )
 
     try:
-        session.get(prof_url, timeout=10)
-        session.get(f"{PORTAL_URL}?type=account_info&action=get_main_info&JsHttpRequest=1-xml", timeout=10)
+        session.get(prof_url, timeout=5)
+        session.get(f"{PORTAL_URL}?type=account_info&action=get_main_info&JsHttpRequest=1-xml", timeout=5)
     except Exception:
         pass
 
-    return session
+    return session, token
 
 def update_playlist():
     global status_data
     status_data["status"] = "Yangilanmoqda..."
-    session = get_session()
-
-    genres = ["", "*", "0"]
-    try:
-        genres_url = f"{PORTAL_URL}?type=itv&action=get_genres&JsHttpRequest=1-xml"
-        genres_resp = session.get(genres_url, timeout=10).json()
-        js_genres = genres_resp.get("js", [])
-        if isinstance(js_genres, list):
-            for g in js_genres:
-                g_id = g.get("id")
-                if g_id is not None and str(g_id) not in [str(x) for x in genres]:
-                    genres.append(str(g_id))
-    except Exception:
-        pass
+    session, token = get_session()
 
     raw_channels = []
     seen_cmds = set()
 
-    for genre in genres:
-        urls = [
-            f"{PORTAL_URL}?type=itv&action=get_all_channels&genre={genre}&JsHttpRequest=1-xml",
-            f"{PORTAL_URL}?type=itv&action=get_all_channels&genre={genre}&p=1&JsHttpRequest=1-xml"
-        ]
-        for ch_url in urls:
-            try:
-                res = session.get(ch_url, timeout=8).json()
-                js_data = res.get("js", {})
-                data = []
-                if isinstance(js_data, list):
-                    data = js_data
-                elif isinstance(js_data, dict):
-                    data = js_data.get("data", []) or js_data.get("channels", [])
+    # Ссылки для получения ВСЕХ каналов без долгих переборов жанров
+    fast_urls = [
+        f"{PORTAL_URL}?type=itv&action=get_all_channels&genre=*&JsHttpRequest=1-xml",
+        f"{PORTAL_URL}?type=itv&action=get_all_channels&genre=0&JsHttpRequest=1-xml",
+        f"{PORTAL_URL}?type=itv&action=get_ordered_list&type=itv&JsHttpRequest=1-xml"
+    ]
 
-                if isinstance(data, list) and len(data) > 0:
-                    for ch in data:
-                        cmd = ch.get("cmd", "")
-                        if cmd and cmd not in seen_cmds:
-                            seen_cmds.add(cmd)
-                            raw_channels.append({
-                                "name": ch.get("name", "Kanal"),
-                                "cmd": cmd,
-                                "timeshift": ch.get("timeshift", 0)
-                            })
-            except Exception:
-                continue
+    for ch_url in fast_urls:
+        try:
+            res = session.get(ch_url, timeout=5).json()
+            js_data = res.get("js", {})
+            data = []
+            if isinstance(js_data, list):
+                data = js_data
+            elif isinstance(js_data, dict):
+                data = js_data.get("data", []) or js_data.get("channels", [])
+
+            if isinstance(data, list) and len(data) > 0:
+                for ch in data:
+                    cmd = ch.get("cmd", "")
+                    if cmd and cmd not in seen_cmds:
+                        seen_cmds.add(cmd)
+                        raw_channels.append({
+                            "name": ch.get("name", "Kanal"),
+                            "cmd": cmd,
+                            "timeshift": ch.get("timeshift", 0)
+                        })
+        except Exception:
+            continue
 
     temp_file = "/tmp/playlist.tmp"
     final_file = "/tmp/playlist.json"
@@ -146,7 +133,7 @@ def update_playlist():
     status_data["status"] = "Muvaffaqiyatli"
 
 def ensure_playlist():
-    if not os.path.exists("/tmp/playlist.json") or (time.time() - os.path.getmtime("/tmp/playlist.json") > 3600):
+    if not os.path.exists("/tmp/playlist.json") or (time.time() - os.path.getmtime("/tmp/playlist.json") > 1800):
         try:
             update_playlist()
         except Exception:
@@ -170,12 +157,12 @@ def admin_panel(request: Request):
     </head>
     <body>
         <div class="card">
-            <h2>Admin Panel (Clean)</h2>
+            <h2>Admin Panel</h2>
             <p>Holati: <span class="badge">{status_data["status"]}</span></p>
             <p><b>Kanallar soni:</b> {status_data["total_channels"]} ta</p>
             <p><b>Oxirgi yangilangan vaqt:</b> {status_data["last_update"]}</p>
             <hr style="border: 0.5px solid #334155; margin: 20px 0;">
-            <a href="/pl.m3u8">M3U8 Playlist (Bez kalit)</a>
+            <a href="/pl.m3u8">M3U8 Playlist</a>
         </div>
     </body>
     </html>
@@ -185,10 +172,13 @@ def admin_panel(request: Request):
 def download_m3u8(request: Request):
     ensure_playlist()
     if not os.path.exists("/tmp/playlist.json"):
-        return "#EXTM3U\n# Xatolik: Playlist hali tayyorlanmadi"
+        return "#EXTM3U\n# Xatolik: Playlist tayyorlanmadi"
 
     with open("/tmp/playlist.json", "r", encoding="utf-8") as f:
         channels = json.load(f)
+
+    if not channels:
+        return "#EXTM3U\n# Kanallar topilmadi"
 
     m3u_lines = ["#EXTM3U"]
     for idx, ch in enumerate(channels):
@@ -206,12 +196,7 @@ def download_m3u8(request: Request):
 
 @app.get("/stream/{index}")
 def proxy_stream(index: int, request: Request):
-    if not os.path.exists("/tmp/playlist.json"):
-        try:
-            update_playlist()
-        except Exception:
-            pass
-
+    ensure_playlist()
     channels = []
     if os.path.exists("/tmp/playlist.json"):
         try:
@@ -221,19 +206,10 @@ def proxy_stream(index: int, request: Request):
             pass
 
     if not channels or index >= len(channels):
-        try:
-            update_playlist()
-            if os.path.exists("/tmp/playlist.json"):
-                with open("/tmp/playlist.json", "r", encoding="utf-8") as f:
-                    channels = json.load(f)
-        except Exception:
-            pass
-
-    if not channels or index >= len(channels):
         return RedirectResponse(url=STUB_VIDEO_URL, status_code=302)
 
     cmd = channels[index].get("cmd", "")
-    session = get_session()
+    session, token = get_session()
     stream_url = ""
 
     try:
@@ -243,7 +219,7 @@ def proxy_stream(index: int, request: Request):
                 clean_cmd = clean_cmd[len(prefix):].strip()
 
         link_url = f"{PORTAL_URL}?type=itv&action=create_link&cmd={requests.utils.quote(clean_cmd)}&JsHttpRequest=1-xml"
-        link_res = session.get(link_url, timeout=10).json()
+        link_res = session.get(link_url, timeout=5).json()
         stream_cmd = link_res.get("js", {}).get("cmd") or link_res.get("js", {}).get("url") or ""
 
         if stream_cmd:
