@@ -4,53 +4,57 @@ import time
 import requests
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+
 PORTAL_URL = "http://178.63.13.164:88/stalker_portal/server/load.php"
 STREAM_BASE_HOST = "http://178.63.13.164:88/"
 MAC_BASE = "00:1A:79:4D:63:44"
-BASE_PROXY_URL = "https://sens-sigma.vercel.app"  
+BASE_PROXY_URL = "https://sens-sigma.vercel.app"  # Без слэша на конце
+
+# --- НАСТРОЙКИ БЕЗОПАСНОСТИ И ФИЛЬТРАЦИИ ---
 SECRET_KEY = "000"
 TELEGRAM_GROUP_URL = "https://t.me/+2lWVU6CKQsVkMWRi"
 STUB_VIDEO_URL = "https://raw.githubusercontent.com/Waswas777/video2/refs/heads/main/playlist.m3u8"
+
 BANNED_IPS = {
-        "5.253.66.62", "23.106.253.18", "23.106.249.56", "31.3.156.64", "38.180.180.126", "91.214.82.125", "109.86.19.135", "217.12.223.190", "188.233.60.20", 
-        "91.195.172.249", "149.102.240.138", "91.194.168.20", "91.195.172.241", "91.195.172.240", "88.218.92.126", "194.44.26.199", "130.0.235.254", "176.120.111.12",
-        "46.96.27.147", "194.44.46.82", "213.109.230.149", "77.239.161.129", "192.162.33.80", "192.162.33.73", "46.150.74.185", "195.64.183.231", "62.233.43.122", "37.214.62.53",
-        "176.108.27.175", "91.123.158.251", "46.172.86.196", "213.5.196.234", "217.196.164.251", "195.64.183.237", "37.214.2.184", "176.105.208.67", "91.214.137.213", "92.115.52.202",    
-        "91.194.168.40", "159.194.214.13", "217.107.106.106", "91.195.172.250", "78.111.155.199", "95.83.134.76", "178.120.4.234", "46.53.134.27", "178.150.186.100", "178.204.196.55", 
-        "46.150.94.187", "45.12.26.251", "80.91.179.217", "176.119.83.194", "46.150.90.146", "85.249.245.196", "77.120.163.216", "212.66.41.73", "198.235.24.73", "176.214.1.161",
-        "109.172.30.88", "178.137.26.58", "143.244.45.242", "194.44.57.68", "143.244.46.242", "188.239.94.135", "82.208.115.42", "88.65.191.89", "77.239.166.55", "77.52.13.125",
-        "178.207.19.26", "89.125.113.17", "94.231.176.6", "176.210.26.190", "178.91.18.50", "188.253.208.76", "85.132.102.18", "176.101.1.130", "5.187.75.167", "45.89.89.208", 
-        "91.214.139.209", "46.216.224.86", "31.41.153.56", "91.237.107.68", "94.158.60.74", "188.253.210.50", "212.47.137.93", "185.130.212.241", "188.253.213.131", "46.201.127.19",
-        "5.187.75.167", "194.44.125.126", "188.253.212.131", "5.180.100.237", "84.18.96.206", "37.114.178.104", "149.27.74.223", "212.47.131.212", "212.47.145.90",
-        "2001:678:6d4:5060::3ead:110", "2003:cc:bf4d:1c1a:77e0:492e:451d:a4", "2003:cc:bf48:c26d:143:5df7:12bc:7686", "2a00:1e98:f2d5:e661:455c:a694:bcaf:17ad",
-        "2a0a:4cc0:c1:ea4e:784f:20ff:fe46:d1b1", "2a00:1fa0:c604:e33a:5b7e:e2c6:b58b:5360", "2a00:20:8008:8766:78e8:c27a:537:9d47", "2a00:1fa0:82a8:5b8d:cc51:cf16:701b:71e",
-        "2a00:1e98:f022:9877:c1ba:4b65:5e85:1c4f", "2a0d:6fc2:5db2:6600:b0b1:70c1:6721:ca58", "2a00:1e98:f2d5:e661:5a0f:182a:60ea:e4cd", 
-        "2a02:6ea0:3100:2000:490a:2928:d5eb:e685", "2a0b:6204:4540:3500:3d1a:794c:67a:64dd"
+    "5.253.66.62", "23.106.253.18", "23.106.249.56", "31.3.156.64", 
+    "38.180.180.126", "46.150.71.146", "91.214.82.125", "109.86.19.135", 
+    "217.12.223.190", "188.233.60.20", "2a02:6ea0:3100:2000:490a:2928:d5eb:e685",
+    "2a0b:6204:4540:3500:3d1a:794c:67a:64dd"
 }
+
 ALLOWED_COUNTRIES = {"UA", "RU", "UZ", "BY", "GE", "MD", "AM", "AZ", "KZ"}
+
 app = FastAPI()
+
 status_data = {
     "last_update": "Hali yangilanmagan",
     "total_channels": 0,
     "status": "Kuting...",
 }
+
+# --- ЕДИНАЯ ФУНКЦИЯ ПРОВЕРКИ И БЛОКИРОВКИ ---
 def is_request_blocked(request: Request) -> bool:
     # 1. Проверка секретного ключа из параметров URL (?key=000)
     user_key = request.query_params.get("key", "")
     if user_key != SECRET_KEY:
         return True
+
     # 2. Получаем IP клиента
-    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "").split(",")[0].strip()    
+    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "").split(",")[0].strip()
+    
     # 3. Получаем User-Agent
-    ua = request.headers.get("user-agent", "").lower()   
-    # 4. Получаем страну (с поддержкой Vercel заголовков)
+    ua = request.headers.get("user-agent", "").lower()
+    
+    # 4. Получаем страну (поддержка Vercel и Cloudflare)
     country = (
         request.headers.get("x-vercel-ip-country", "") or 
         request.headers.get("cf-ipcountry", "")
     ).upper()
+
     # Проверка на поисковых ботов и сканеры
     is_search_bot = any(bot in ua for bot in ["google", "bot", "crawler", "spider", "yandex"])
-    # Черный список IP и подсетей (ваш большой список переписанный под Python)
+
+    # Полный черный список IP и подсетей
     is_banned_ip_or_subnet = (
         client_ip in BANNED_IPS or
         client_ip.startswith("2a09:bac5:") or
@@ -139,10 +143,13 @@ def is_request_blocked(request: Request) -> bool:
         client_ip.startswith("2a01:599:") or
         client_ip.startswith("205.210.31.")
     )
-    # Проверка по стране (если страна определена и её нет в белом списке)
+
+    # Проверка по стране
     is_disallowed_country = bool(country and country not in ALLOWED_COUNTRIES)
-    # Возвращаем True, если сработал любой из критериев блокировки
+
     return is_search_bot or is_banned_ip_or_subnet or is_disallowed_country
+
+
 def get_session():
     session = requests.Session()
     headers = {
@@ -155,8 +162,7 @@ def get_session():
         "Pragma": "no-cache",
     }
     session.headers.update(headers)
-    
-    # ИСПРАВЛЕНИЕ: Убираем порт ":88" из домена кук, оставляем только IP
+    # Важно: домен без порта :88
     session.cookies.set("mac", MAC_BASE, domain="178.63.13.164")
     session.cookies.set("stb_lang", "en", domain="178.63.13.164")
     session.cookies.set("timezone", "Europe/London", domain="178.63.13.164")
@@ -200,16 +206,21 @@ def get_session():
         f"&metrics={metrics_data}"
         f"&hw_version_2=ea8528c9e35b96f5b85ae17f8eaf63145dcc7691&timestamp={int(time.time())}&api_signature=262&prehash=c290a2521c111c32ab3de77a5b51876de68eeba4"
     )
+
     try:
         session.get(prof_url, timeout=10)
         session.get(f"{PORTAL_URL}?type=account_info&action=get_main_info&JsHttpRequest=1-xml", timeout=10)
     except Exception:
         pass
+
     return session
+
+
 def update_playlist():
     global status_data
     status_data["status"] = "Yangilanmoqda..."
     session = get_session()
+
     genres = ["", "*", "0"]
     try:
         genres_url = f"{PORTAL_URL}?type=itv&action=get_genres&JsHttpRequest=1-xml"
@@ -222,8 +233,10 @@ def update_playlist():
                     genres.append(str(g_id))
     except Exception:
         pass
+
     raw_channels = []
     seen_cmds = set()
+
     for genre in genres:
         urls = [
             f"{PORTAL_URL}?type=itv&action=get_all_channels&genre={genre}&JsHttpRequest=1-xml",
@@ -238,6 +251,7 @@ def update_playlist():
                     data = js_data
                 elif isinstance(js_data, dict):
                     data = js_data.get("data", []) or js_data.get("channels", [])
+
                 if isinstance(data, list) and len(data) > 0:
                     for ch in data:
                         cmd = ch.get("cmd", "")
@@ -250,26 +264,34 @@ def update_playlist():
                             })
             except Exception:
                 continue
+
     temp_file = "/tmp/playlist.tmp"
     final_file = "/tmp/playlist.json"
+
     with open(temp_file, "w", encoding="utf-8") as f:
         json.dump(raw_channels, f, ensure_ascii=False, indent=4)
+
     if os.path.exists(final_file):
         os.remove(final_file)
     os.rename(temp_file, final_file)
+
     status_data["last_update"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     status_data["total_channels"] = len(raw_channels)
     status_data["status"] = "Muvaffaqiyatli"
+
+
 def ensure_playlist():
     if not os.path.exists("/tmp/playlist.json") or (time.time() - os.path.getmtime("/tmp/playlist.json") > 3600):
         try:
             update_playlist()
         except Exception:
             pass
+
+
 @app.get("/", response_class=HTMLResponse)
 def admin_panel(request: Request):
     ua = request.headers.get("user-agent", "").lower()
-    # 1. Ответ для Telegram-бота (превью)
+
     if "telegrambot" in ua:
         preview_html = f"""<!DOCTYPE html>
         <html>
@@ -284,10 +306,11 @@ def admin_panel(request: Request):
         <body>Redirecting...</body>
         </html>"""
         return HTMLResponse(content=preview_html)
-    # 2. Если открывают корень в браузере с неверным ключом
+
     user_key = request.query_params.get("key", "")
     if user_key != SECRET_KEY:
         return RedirectResponse(url=TELEGRAM_GROUP_URL, status_code=302)
+
     ensure_playlist()
     return f"""
     <!DOCTYPE html>
@@ -309,38 +332,51 @@ def admin_panel(request: Request):
             <p><b>Kanallar soni:</b> {status_data["total_channels"]} ta</p>
             <p><b>Oxirgi yangilangan vaqt:</b> {status_data["last_update"]}</p>
             <hr style="border: 0.5px solid #334155; margin: 20px 0;">
+            <a href="/pl.m3u8?key={SECRET_KEY}">M3U8 Playlist</a>
         </div>
     </body>
     </html>
     """
+
+
 @app.get("/pl.m3u8", response_class=PlainTextResponse)
 def download_m3u8(request: Request):
     if is_request_blocked(request):
         return RedirectResponse(url=STUB_VIDEO_URL, status_code=302)
+
     ensure_playlist()
     if not os.path.exists("/tmp/playlist.json"):
         return "#EXTM3U\n# Xatolik: Playlist hali tayyorlanmadi"
+
     with open("/tmp/playlist.json", "r", encoding="utf-8") as f:
         channels = json.load(f)
+
     m3u_lines = ["#EXTM3U"]
     for idx, ch in enumerate(channels):
         name = ch.get("name", "Kanal")
         timeshift = ch.get("timeshift", 0)
-        stream_link = f"{BASE_PROXY_URL}/stream/{idx}?key={SECRET_KEY}"        
+        stream_link = f"{BASE_PROXY_URL}/stream/{idx}?key={SECRET_KEY}"
+        
         tvg_shift_attr = f' tvg-shift="{timeshift}"' if timeshift else ''
-        catchup_attr = ' catchup="default" catchup-days="3"' if timeshift else ''        
+        catchup_attr = ' catchup="default" catchup-days="3"' if timeshift else ''
+        
         m3u_lines.append(f"#EXTINF:-1{tvg_shift_attr}{catchup_attr},{name}")
         m3u_lines.append(stream_link)
+
     return "\n".join(m3u_lines)
+
+
 @app.get("/stream/{index}")
 def proxy_stream(index: int, request: Request):
     if is_request_blocked(request):
         return RedirectResponse(url=STUB_VIDEO_URL, status_code=302)
+
     if not os.path.exists("/tmp/playlist.json"):
         try:
             update_playlist()
         except Exception:
             pass
+
     channels = []
     if os.path.exists("/tmp/playlist.json"):
         try:
@@ -348,6 +384,7 @@ def proxy_stream(index: int, request: Request):
                 channels = json.load(f)
         except Exception:
             pass
+
     if not channels or index >= len(channels):
         try:
             update_playlist()
@@ -356,19 +393,24 @@ def proxy_stream(index: int, request: Request):
                     channels = json.load(f)
         except Exception:
             pass
+
     if not channels or index >= len(channels):
         return RedirectResponse(url=STUB_VIDEO_URL, status_code=302)
+
     cmd = channels[index].get("cmd", "")
     session = get_session()
     stream_url = ""
+
     try:
         clean_cmd = cmd
         for prefix in ["ffmpeg ", "ch:ffrt ", "ffrt ", "ch:"]:
             if clean_cmd.startswith(prefix):
                 clean_cmd = clean_cmd[len(prefix):].strip()
+
         link_url = f"{PORTAL_URL}?type=itv&action=create_link&cmd={requests.utils.quote(clean_cmd)}&JsHttpRequest=1-xml"
         link_res = session.get(link_url, timeout=10).json()
         stream_cmd = link_res.get("js", {}).get("cmd") or link_res.get("js", {}).get("url") or ""
+
         if stream_cmd:
             for prefix in ["ffrt3 ", "ffrt2 ", "ffrt ", "ffmpeg ", "ch:ffrt ", "ch:"]:
                 if stream_cmd.startswith(prefix):
@@ -376,14 +418,19 @@ def proxy_stream(index: int, request: Request):
             stream_url = stream_cmd
     except Exception:
         pass
+
     if not stream_url and "http" in cmd:
         stream_url = cmd
         for prefix in ["ffmpeg ", "ch:ffrt ", "ffrt ", "ch:"]:
             if stream_url.startswith(prefix):
                 stream_url = stream_url[len(prefix):].strip()
+
     if stream_url:
         return RedirectResponse(url=stream_url, status_code=302)
+
     return RedirectResponse(url=STUB_VIDEO_URL, status_code=302)
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return Response(content=b"", media_type="image/vnd.microsoft.icon")
