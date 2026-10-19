@@ -5,7 +5,7 @@ import requests
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 PORTAL_URL = "http://178.63.13.164:88/stalker_portal/server/load.php"
-STREAM_BASE_HOST = "http://lutvil.ddns.net:8087/"
+STREAM_BASE_HOST = "http://178.63.13.164:88/"
 MAC_BASE = "00:1A:79:4D:63:44"
 BASE_PROXY_URL = "https://sens-sigma.vercel.app/"  
 SECRET_KEY = "000"
