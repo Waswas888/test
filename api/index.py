@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 PORTAL_URL = "http://178.63.13.164:88/stalker_portal/server/load.php"
 MAC_BASE = "00:1A:79:4D:63:44"
-BASE_PROXY_URL = "https://test-flax-six-63.vercel.app"  # Актуальный домен
+BASE_PROXY_URL = "https://test-flax-six-63.vercel.app"
 STUB_VIDEO_URL = "https://raw.githubusercontent.com/Waswas777/video2/refs/heads/main/playlist.m3u8"
 
 app = FastAPI()
@@ -31,7 +31,6 @@ def get_session():
     }
     session.headers.update(headers)
     
-    # Обязательные cookie портала
     session.cookies.set("mac", MAC_BASE, domain="178.63.13.164")
     session.cookies.set("stb_lang", "en", domain="178.63.13.164")
     session.cookies.set("timezone", "Europe/London", domain="178.63.13.164")
@@ -85,17 +84,24 @@ def update_playlist():
     status_data["status"] = "Yangilanmoqda..."
     session, token = get_session()
 
+    genres = ["*"]
+    try:
+        genres_url = f"{PORTAL_URL}?type=itv&action=get_genres&JsHttpRequest=1-xml"
+        genres_resp = session.get(genres_url, timeout=5).json()
+        js_genres = genres_resp.get("js", [])
+        if isinstance(js_genres, list):
+            for g in js_genres:
+                g_id = g.get("id")
+                if g_id is not None and str(g_id) not in genres:
+                    genres.append(str(g_id))
+    except Exception:
+        pass
+
     raw_channels = []
     seen_cmds = set()
 
-    # Ссылки для получения ВСЕХ каналов без долгих переборов жанров
-    fast_urls = [
-        f"{PORTAL_URL}?type=itv&action=get_all_channels&genre=*&JsHttpRequest=1-xml",
-        f"{PORTAL_URL}?type=itv&action=get_all_channels&genre=0&JsHttpRequest=1-xml",
-        f"{PORTAL_URL}?type=itv&action=get_ordered_list&type=itv&JsHttpRequest=1-xml"
-    ]
-
-    for ch_url in fast_urls:
+    for genre in genres:
+        ch_url = f"{PORTAL_URL}?type=itv&action=get_all_channels&genre={genre}&JsHttpRequest=1-xml"
         try:
             res = session.get(ch_url, timeout=5).json()
             js_data = res.get("js", {})
@@ -105,7 +111,7 @@ def update_playlist():
             elif isinstance(js_data, dict):
                 data = js_data.get("data", []) or js_data.get("channels", [])
 
-            if isinstance(data, list) and len(data) > 0:
+            if isinstance(data, list):
                 for ch in data:
                     cmd = ch.get("cmd", "")
                     if cmd and cmd not in seen_cmds:
@@ -239,7 +245,7 @@ def proxy_stream(index: int, request: Request):
     if stream_url:
         return RedirectResponse(url=stream_url, status_code=302)
 
-    return RedirectResponse(url=STUB_VIDEO_URL, status_code=302)
+        return RedirectResponse(url=STUB_VIDEO_URL, status_code=302)
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
