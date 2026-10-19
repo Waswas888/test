@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 PORTAL_URL = "http://178.63.13.164:88/stalker_portal/server/load.php"
 STREAM_BASE_HOST = "http://178.63.13.164:88/"
 MAC_BASE = "00:1A:79:4D:63:44"
-BASE_PROXY_URL = "https://sens-sigma.vercel.app"  # Без слэша на конце
+BASE_PROXY_URL = "https://sens-sens8.vercel.app"
 
 # --- НАСТРОЙКИ БЕЗОПАСНОСТИ И ФИЛЬТРАЦИИ ---
 SECRET_KEY = "000"
