@@ -6,11 +6,12 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 
 PORTAL_URL = "http://pon.access.ly/stalker_portal/server/load.php"
 MAC_BASE = "00:1A:79:5C:B3:A3"
+PROXY_PREFIX = "https://www.ipservice.tv/api/stream/?url="
 
 app = FastAPI()
 
 def create_verified_session():
-    """Создает сессию, повторяющую успешную последовательность из логов"""
+    """Создает сессию, повторяющую успешную последовательность авторизации"""
     session = requests.Session()
     headers = {
         "User-Agent": "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3",
@@ -26,7 +27,7 @@ def create_verified_session():
     session.cookies.set("stb_lang", "en", domain="pon.access.ly")
     session.cookies.set("timezone", "Europe/London", domain="pon.access.ly")
 
-    # 1. Запрос статики портала (как в успешных логах)
+    # 1. Запрос статики портала
     try:
         session.get("http://pon.access.ly/stalker_portal/c/", timeout=5)
         session.get("http://pon.access.ly/stalker_portal/c/xpcom.common.js", timeout=5)
@@ -46,7 +47,7 @@ def create_verified_session():
     except Exception as e:
         print(f"Handshake error: {e}")
 
-    # 3. Profile full (с точными параметрами из ваших успешных логов)
+    # 3. Profile full
     current_timestamp = int(time.time())
     random_str = "bca85bfa90893c72d6e916be097b9e5f501ee211"
     
@@ -106,11 +107,10 @@ def admin_panel():
 
 @app.get("/pl.m3u8", response_class=PlainTextResponse)
 def download_m3u8():
-    """Запрашивает список каналов после прохождения успешной авторизации"""
+    """Генерирует плейлист с проксированием через ipservice.tv"""
     try:
         session = create_verified_session()
         
-        # Пробуем получить каналы
         channels_url = f"{PORTAL_URL}?type=itv&action=get_all_channels&JsHttpRequest=1-xml"
         res = session.get(channels_url, timeout=10)
         
@@ -122,7 +122,6 @@ def download_m3u8():
         channels = res_json.get("js", {}).get("data", [])
         
         if not channels:
-            # Альтернативный метод запроса каналов, если get_all_channels пустой
             alt_url = f"{PORTAL_URL}?type=itv&action=get_ordered_list&JsHttpRequest=1-xml"
             res_alt = session.get(alt_url, timeout=10).json()
             channels = res_alt.get("js", {}).get("data", []) or res_alt.get("js", [])
@@ -142,8 +141,11 @@ def download_m3u8():
                 if cmd.startswith(prefix):
                     cmd = cmd[len(prefix):].strip()
 
+            # Оборачиваем ссылку в ваш прокси-сервис
+            proxied_url = f"{PROXY_PREFIX}{requests.utils.quote(cmd)}"
+
             m3u_lines.append(f"#EXTINF:-1,{ch_name}")
-            m3u_lines.append(cmd)
+            m3u_lines.append(proxied_url)
 
         return "\n".join(m3u_lines)
 
