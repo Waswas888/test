@@ -96,13 +96,19 @@ def admin_panel():
 
 @app.get("/pl.m3u8", response_class=PlainTextResponse)
 def download_m3u8():
-    """Запрашивает список каналов и генерирует M3U8 прямо в момент запроса"""
+    """Запрашивает список каналов и генерирует M3U8 прямо в момент запроса с защитой от ошибок парсинга"""
     try:
         session = create_fresh_session()
         channels_url = f"{PORTAL_URL}?type=itv&action=get_all_channels&JsHttpRequest=1-xml"
-        res = session.get(channels_url, timeout=10).json()
+        res = session.get(channels_url, timeout=10)
         
-        channels = res.get("js", {}).get("data", [])
+        # Проверяем, что пришел именно JSON, а не HTML или пустой ответ
+        raw_text = res.text.strip()
+        if not raw_text.startswith("{"):
+            return f"#EXTM3U\n# Xatolik: Portal JSON o'rniga matn qaytardi: {raw_text[:100]}"
+
+        res_json = res.json()
+        channels = res_json.get("js", {}).get("data", [])
         if not channels:
             return "#EXTM3U\n# Kanallar topilmadi"
 
@@ -125,7 +131,6 @@ def download_m3u8():
 
     except Exception as e:
         return f"#EXTM3U\n# Xatolik: {str(e)}"
-
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
