@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 PORTAL_URL = "http://178.63.13.164:88/stalker_portal/server/load.php"
 STREAM_BASE_HOST = "http://178.63.13.164:88/"
 MAC_BASE = "00:1A:79:4D:63:44"
-BASE_PROXY_URL = "https://sens-sigma.vercel.app/"  
+BASE_PROXY_URL = "https://sens-sigma.vercel.app"  
 SECRET_KEY = "000"
 TELEGRAM_GROUP_URL = "https://t.me/+2lWVU6CKQsVkMWRi"
 STUB_VIDEO_URL = "https://raw.githubusercontent.com/Waswas777/video2/refs/heads/main/playlist.m3u8"
@@ -155,25 +155,30 @@ def get_session():
         "Pragma": "no-cache",
     }
     session.headers.update(headers)
-    session.cookies.set("mac", MAC_BASE, domain="178.63.13.164:88")
-    session.cookies.set("stb_lang", "en", domain="178.63.13.164:88")
-    session.cookies.set("timezone", "Europe/London", domain="178.63.13.164:88")
+    
+    # ИСПРАВЛЕНИЕ: Убираем порт ":88" из домена кук, оставляем только IP
+    session.cookies.set("mac", MAC_BASE, domain="178.63.13.164")
+    session.cookies.set("stb_lang", "en", domain="178.63.13.164")
+    session.cookies.set("timezone", "Europe/London", domain="178.63.13.164")
+
     try:
         session.get("http://178.63.13.164:88/stalker_portal/c/", timeout=5)
         session.get("http://178.63.13.164:88/stalker_portal/c/xpcom.common.js", timeout=5)
         session.get("http://178.63.13.164:88/stalker_portal/c/version.js", timeout=5)
     except Exception:
         pass
+
     token = ""
     try:
         hs_url = f"{PORTAL_URL}?type=stb&action=handshake&token=&JsHttpRequest=1-xml"
         r = session.get(hs_url, timeout=10).json()
         token = r.get("js", {}).get("token", "")
         if token:
-            session.cookies.set("token", token, domain="178.63.13.164:88")
+            session.cookies.set("token", token, domain="178.63.13.164")
             session.headers.update({"Authorization": f"Bearer {token}"})
     except Exception:
         pass
+
     metrics_data = json.dumps({
         "type": "stb",
         "model": "MAG254",
