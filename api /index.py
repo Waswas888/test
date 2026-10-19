@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 PORTAL_URL = "http://178.63.13.164:88/stalker_portal/server/load.php"
 STREAM_BASE_HOST = "http://lutvil.ddns.net:8087/"
 MAC_BASE = "00:1A:79:4D:63:44"
-BASE_PROXY_URL = "https://estom.vercel.app"  
+BASE_PROXY_URL = "https://sens-sigma.vercel.app/"  
 SECRET_KEY = "000"
 TELEGRAM_GROUP_URL = "https://t.me/+2lWVU6CKQsVkMWRi"
 STUB_VIDEO_URL = "https://raw.githubusercontent.com/Waswas777/video2/refs/heads/main/playlist.m3u8"
