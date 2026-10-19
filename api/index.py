@@ -1,6 +1,7 @@
 import json
+import time
 import requests
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
 PORTAL_URL = "http://pon.access.ly/stalker_portal/server/load.php"
@@ -8,14 +9,11 @@ MAC_BASE = "00:1A:79:5C:B3:A3"
 
 app = FastAPI()
 
-def create_fresh_session():
-    """Создает сессию и проходит авторизацию на Stalker-портале"""
+def create_verified_session():
+    """Создает сессию, повторяющую успешную последовательность из логов"""
     session = requests.Session()
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like"
-            " Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3"
-        ),
+        "User-Agent": "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3",
         "X-User-Agent": "Model: MAG250; Link: WiFi",
         "Referer": "http://pon.access.ly/stalker_portal/c/index.html",
         "Accept": "*/*",
@@ -28,31 +26,43 @@ def create_fresh_session():
     session.cookies.set("stb_lang", "en", domain="pon.access.ly")
     session.cookies.set("timezone", "Europe/London", domain="pon.access.ly")
 
+    # 1. Запрос статики портала (как в успешных логах)
     try:
         session.get("http://pon.access.ly/stalker_portal/c/", timeout=5)
+        session.get("http://pon.access.ly/stalker_portal/c/xpcom.common.js", timeout=5)
+        session.get("http://pon.access.ly/stalker_portal/c/version.js", timeout=5)
     except Exception:
         pass
 
+    # 2. Handshake
+    token = ""
     try:
         hs_url = f"{PORTAL_URL}?type=stb&action=handshake&token=&JsHttpRequest=1-xml"
         r = session.get(hs_url, timeout=5).json()
-        token = r.get("js", {}).get("token")
+        token = r.get("js", {}).get("token", "")
         if token:
             session.cookies.set("token", token, domain="pon.access.ly")
             session.headers.update({"Authorization": f"Bearer {token}"})
     except Exception as e:
-        print(f"[Session] Handshake error: {e}")
+        print(f"Handshake error: {e}")
 
+    # 3. Profile full (с точными параметрами из ваших успешных логов)
+    current_timestamp = int(time.time())
+    random_str = "bca85bfa90893c72d6e916be097b9e5f501ee211"
+    
     metrics_data = json.dumps({
         "type": "stb",
         "model": "MAG254",
         "mac": MAC_BASE,
         "sn": "3F100914EEAF3",
         "uid": "2E858D27FD71853972013E6456B2DE4A3F228BA5241843CD292943E4F6D9507B",
-        "random": "76f6f0ea9329a09d278a2dcc81721e6d6835d283",
+        "random": random_str
     })
+    
+    token_param = f"&token={token}" if token else ""
     prof_url = (
-        f"{PORTAL_URL}?type=stb&action=get_profile&hd=1"
+        f"{PORTAL_URL}?type=stb&action=get_profile&JsHttpRequest=1-xml&hd=1"
+        f"{token_param}"
         "&ver=ImageDescription: 0.2.18-r23-250; ImageDate: Thu Sep 13 11:31:16 EEST 2018; PORTAL version: 5.3.0; API Version: JS API version: 343; STB API version: 146; Player Engine version: 0x58c"
         "&num_banks=2&sn=3F100914EEAF3&stb_type=MAG250&client_type=STB&image_version=218&video_out=hdmi"
         "&device_id=B6CA12E4100838EF6A18271EE7C5683F75438ADC28793E5A21AE776C483069A3"
@@ -60,15 +70,16 @@ def create_fresh_session():
         "&signature=D2CC6F6C14D72DFD01CCB620188EF0449296615237E89BA9CABA8F881A68AA7A"
         "&auth_second_step=1&hw_version=1.7-BD-00&not_valid_token=0"
         f"&metrics={metrics_data}"
-        "&hw_version_2=d02e388e47ad401804696dd8814fc68736b6d150&timestamp=1787976056&api_signature=262&prehash=feffc7137a73f1719a634ea6042075c89ee5d6a7&JsHttpRequest=1-xml"
+        f"&hw_version_2=d02e388e47ad401804696dd8814fc68736b6d150&timestamp={current_timestamp}&api_signature=262&prehash=feffc7137a73f1719a634ea6042075c89ee5d6a7"
     )
+    
     try:
-        session.get(prof_url, timeout=5)
+        session.get(prof_url, timeout=6)
+        session.get(f"{PORTAL_URL}?type=account_info&action=get_main_info&JsHttpRequest=1-xml", timeout=6)
     except Exception:
         pass
 
     return session
-
 
 @app.get("/", response_class=HTMLResponse)
 def admin_panel():
@@ -93,23 +104,30 @@ def admin_panel():
     </html>
     """
 
-
 @app.get("/pl.m3u8", response_class=PlainTextResponse)
 def download_m3u8():
-    """Запрашивает список каналов и генерирует M3U8 прямо в момент запроса с защитой от ошибок парсинга"""
+    """Запрашивает список каналов после прохождения успешной авторизации"""
     try:
-        session = create_fresh_session()
+        session = create_verified_session()
+        
+        # Пробуем получить каналы
         channels_url = f"{PORTAL_URL}?type=itv&action=get_all_channels&JsHttpRequest=1-xml"
         res = session.get(channels_url, timeout=10)
         
-        # Проверяем, что пришел именно JSON, а не HTML или пустой ответ
         raw_text = res.text.strip()
         if not raw_text.startswith("{"):
             return f"#EXTM3U\n# Xatolik: Portal JSON o'rniga matn qaytardi: {raw_text[:100]}"
 
         res_json = res.json()
         channels = res_json.get("js", {}).get("data", [])
+        
         if not channels:
+            # Альтернативный метод запроса каналов, если get_all_channels пустой
+            alt_url = f"{PORTAL_URL}?type=itv&action=get_ordered_list&JsHttpRequest=1-xml"
+            res_alt = session.get(alt_url, timeout=10).json()
+            channels = res_alt.get("js", {}).get("data", []) or res_alt.get("js", [])
+
+        if not channels or not isinstance(channels, list):
             return "#EXTM3U\n# Kanallar topilmadi"
 
         m3u_lines = ["#EXTM3U"]
