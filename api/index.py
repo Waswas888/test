@@ -1,31 +1,15 @@
 import json
-import os
-import threading
-import time
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import (
-    HTMLResponse,
-    JSONResponse,
-    PlainTextResponse,
-    RedirectResponse,
-)
 import requests
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
 PORTAL_URL = "http://pon.access.ly/stalker_portal/server/load.php"
 MAC_BASE = "00:1A:79:5C:B3:A3"
-JSON_FILE_PATH = "/tmp/playlist.json"
 
 app = FastAPI()
 
-status_data = {
-    "last_update": "Hali yangilanmagan",
-    "total_channels": 0,
-    "status": "Ishga tushmoqda...",
-}
-
-
 def create_fresh_session():
-    """Создает свежую сессию и получает новый токен для обхода link_fault"""
+    """Создает сессию и проходит авторизацию на Stalker-портале"""
     session = requests.Session()
     headers = {
         "User-Agent": (
@@ -46,31 +30,25 @@ def create_fresh_session():
 
     try:
         session.get("http://pon.access.ly/stalker_portal/c/", timeout=5)
-        session.get("http://pon.access.ly/stalker_portal/c/xpcom.common.js", timeout=5)
-        session.get("http://pon.access.ly/stalker_portal/c/version.js", timeout=5)
     except Exception:
         pass
 
     try:
-        hs_url = (
-            "http://pon.access.ly/stalker_portal/server/load.php?type=stb&action=handshake&token=&JsHttpRequest=1-xml"
-        )
-        r = session.get(hs_url, timeout=8).json()
+        hs_url = f"{PORTAL_URL}?type=stb&action=handshake&token=&JsHttpRequest=1-xml"
+        r = session.get(hs_url, timeout=5).json()
         token = r.get("js", {}).get("token")
         if token:
             session.cookies.set("token", token, domain="pon.access.ly")
             session.headers.update({"Authorization": f"Bearer {token}"})
     except Exception as e:
-        print(f"[Session] Handshake xatoligi: {e}")
+        print(f"[Session] Handshake error: {e}")
 
     metrics_data = json.dumps({
         "type": "stb",
         "model": "MAG254",
         "mac": MAC_BASE,
         "sn": "3F100914EEAF3",
-        "uid": (
-            "2E858D27FD71853972013E6456B2DE4A3F228BA5241843CD292943E4F6D9507B"
-        ),
+        "uid": "2E858D27FD71853972013E6456B2DE4A3F228BA5241843CD292943E4F6D9507B",
         "random": "76f6f0ea9329a09d278a2dcc81721e6d6835d283",
     })
     prof_url = (
@@ -82,189 +60,71 @@ def create_fresh_session():
         "&signature=D2CC6F6C14D72DFD01CCB620188EF0449296615237E89BA9CABA8F881A68AA7A"
         "&auth_second_step=1&hw_version=1.7-BD-00&not_valid_token=0"
         f"&metrics={metrics_data}"
-        "&hw_version_2=d02e388e47ad401804696dd8814fc68736b6d150&timestamp=1787976056&api_signature=262&prehash=262&prehash=feffc7137a73f1719a634ea6042075c89ee5d6a7&JsHttpRequest=1-xml"
+        "&hw_version_2=d02e388e47ad401804696dd8814fc68736b6d150&timestamp=1787976056&api_signature=262&prehash=feffc7137a73f1719a634ea6042075c89ee5d6a7&JsHttpRequest=1-xml"
     )
     try:
-        session.get(prof_url, timeout=8)
+        session.get(prof_url, timeout=5)
     except Exception:
         pass
 
     return session
 
 
-def update_playlist():
-    global status_data
-    status_data["status"] = "Yangilanmoqda..."
-    print("--- Kanallarni yig'ish boshlandi ---")
-
-    try:
-        session = create_fresh_session()
-        channels_url = (
-            f"{PORTAL_URL}?type=itv&action=get_all_channels&JsHttpRequest=1-xml"
-        )
-
-        channels = []
-        for attempt in range(3):
-            try:
-                res = session.get(channels_url, timeout=15)
-                channels_res = res.json()
-                channels = channels_res.get("js", {}).get("data", [])
-                if channels:
-                    print(f"Portal jami {len(channels)} ta kanal topdi.")
-                    break
-            except Exception as e:
-                print(f"Kanallarni olishda xatolik (urinish {attempt + 1}): {e}")
-                time.sleep(2)
-
-        channels_list = []
-        if channels:
-            for idx, target_channel in enumerate(channels):
-                ch_name = target_channel.get("name", f"Kanal {idx}")
-                cmd = target_channel.get("cmd", "")
-                if cmd:
-                    channels_list.append({"name": ch_name, "cmd": cmd})
-
-        temp_file = "/tmp/playlist.tmp"
-        final_file = JSON_FILE_PATH
-
-        with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(channels_list, f, ensure_ascii=False, indent=4)
-
-        if os.path.exists(final_file):
-            os.remove(final_file)
-        os.rename(temp_file, final_file)
-
-        status_data["total_channels"] = len(channels_list)
-        status_data["last_update"] = time.strftime(
-            "%Y-%m-%d %H:%M:%S", time.localtime()
-        )
-        status_data["status"] = "Muvaffaqiyatli ishlayapti ✅"
-        print(f"--- Bajarildi! Jami {len(channels_list)} ta kanal tayyorlandi. ---")
-
-    except Exception as e:
-        status_data["status"] = f"Xatolik: {e}"
-        print(f"Kritik xatolik update_playlist da: {e}")
-
-
-def background_worker_initial():
-    time.sleep(3)
-    try:
-        update_playlist()
-    except Exception as e:
-        print(f"Boshlang'ich xatolik: {e}")
-
-    while True:
-        time.sleep(86400)
-        try:
-            update_playlist()
-        except Exception as e:
-            print(f"Background worker xatoligi: {e}")
-
-
-@app.on_event("startup")
-def startup_event():
-    t = threading.Thread(target=background_worker_initial, daemon=True)
-    t.start()
-
-
 @app.get("/", response_class=HTMLResponse)
 def admin_panel():
-    return f"""
+    return """
     <!DOCTYPE html>
     <html lang="uz">
     <head>
         <meta charset="UTF-8">
-        <title>IPTV Admin Panel</title>
+        <title>IPTV Direct Panel</title>
         <style>
-            body {{ font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 50px; }}
-            .card {{ background: #1e293b; padding: 30px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }}
-            .badge {{ background: #22c55e; color: white; padding: 5px 12px; border-radius: 20px; font-weight: bold; }}
-            a {{ color: #38bdf8; text-decoration: none; display: block; margin-top: 15px; font-size: 18px; }}
-            a:hover {{ text-decoration: underline; }}
+            body { font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 50px; }
+            .card { background: #1e293b; padding: 30px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+            a { color: #38bdf8; text-decoration: none; display: block; margin-top: 15px; font-size: 18px; }
         </style>
     </head>
     <body>
         <div class="card">
-            <h2>🚀 IPTV Direct Playlist Panel</h2>
-            <p>Holati: <span class="badge">{status_data["status"]}</span></p>
-            <p><b>Kanal:</b> {status_data["total_channels"]} ta</p>
-            <p><b>Oxirgi yangilangan vaqt:</b> {status_data["last_update"]}</p>
-            <hr style="border: 0.5px solid #334155; margin: 20px 0;">
+            <h2>🚀 IPTV Direct Playlist</h2>
             <a href="/pl.m3u8" target="_blank">📥 M3U Playlist (/pl.m3u8)</a>
-            <a href="/playlist.json" target="_blank" style="color: #94a3b8; font-size: 14px;">📄 JSON ni ko'rish (/playlist.json)</a>
         </div>
     </body>
     </html>
     """
 
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-
-@app.get("/playlist.json")
-def download_json():
-    if os.path.exists(JSON_FILE_PATH):
-        with open(JSON_FILE_PATH, "r", encoding="utf-8") as f:
-            content = json.load(f)
-        return content
-    return {"error": "Hali playlist tayyor emas!"}, 404
-
-
 @app.get("/pl.m3u8", response_class=PlainTextResponse)
-def download_m3u8(request: Request):
-    """Генерирует плейлист, запрашивая прямые ссылки у портала на лету"""
-    if not os.path.exists(JSON_FILE_PATH):
-        return "#EXTM3U\n# Xatolik: Playlist hali tayyorlanmadi"
-
+def download_m3u8():
+    """Запрашивает список каналов и генерирует M3U8 прямо в момент запроса"""
     try:
-        with open(JSON_FILE_PATH, "r", encoding="utf-8") as f:
-            channels = json.load(f)
-    except Exception:
-        return "#EXTM3U\n# Xatolik: Playlistni o'qib bo'lmadi"
+        session = create_fresh_session()
+        channels_url = f"{PORTAL_URL}?type=itv&action=get_all_channels&JsHttpRequest=1-xml"
+        res = session.get(channels_url, timeout=10).json()
+        
+        channels = res.get("js", {}).get("data", [])
+        if not channels:
+            return "#EXTM3U\n# Kanallar topilmadi"
 
-    session = create_fresh_session()
-    m3u_lines = ["#EXTM3U"]
+        m3u_lines = ["#EXTM3U"]
+        for idx, target_channel in enumerate(channels):
+            ch_name = target_channel.get("name", f"Kanal {idx}")
+            cmd = target_channel.get("cmd", "").strip()
 
-    for ch in channels:
-        name = ch.get("name", "Kanal")
-        cmd = ch.get("cmd", "")
+            if not cmd:
+                continue
 
-        clean_cmd = cmd.strip()
-        for prefix in ["ffrt ", "ffmpeg ", "ffrt%20", "ffmpeg%20"]:
-            if clean_cmd.startswith(prefix):
-                clean_cmd = clean_cmd[len(prefix) :].strip()
+            for prefix in ["ffrt ", "ffmpeg ", "ffrt%20", "ffmpeg%20"]:
+                if cmd.startswith(prefix):
+                    cmd = cmd[len(prefix):].strip()
 
-        stream_url = clean_cmd
+            m3u_lines.append(f"#EXTINF:-1,{ch_name}")
+            m3u_lines.append(cmd)
 
-        # Запрашиваем у портала создание прямой ссылки для потока
-        try:
-            link_url = (
-                f"{PORTAL_URL}?type=itv&action=create_link&cmd={requests.utils.quote(clean_cmd)}&forced_storage=on&JsHttpRequest=1-xml"
-            )
-            res = session.get(link_url, timeout=5)
-            link_res = res.json()
+        return "\n".join(m3u_lines)
 
-            extracted_cmd = None
-            if isinstance(link_res, dict):
-                if "js" in link_res and isinstance(link_res["js"], dict):
-                    extracted_cmd = link_res["js"].get("cmd") or link_res["js"].get("url")
-                if not extracted_cmd:
-                    extracted_cmd = link_res.get("cmd") or link_res.get("url")
-
-            if extracted_cmd:
-                for prefix in ["ffrt ", "ffmpeg "]:
-                    if extracted_cmd.startswith(prefix):
-                        extracted_cmd = extracted_cmd[len(prefix) :].strip()
-                stream_url = extracted_cmd
-        except Exception:
-            pass
-
-        m3u_lines.append(f"#EXTINF:-1,{name}")
-        m3u_lines.append(stream_url)
-
-    return "\n".join(m3u_lines)
+    except Exception as e:
+        return f"#EXTM3U\n# Xatolik: {str(e)}"
 
 
 @app.get("/favicon.ico", include_in_schema=False)
